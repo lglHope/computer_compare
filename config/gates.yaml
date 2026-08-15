@@ -1,0 +1,34 @@
+# 对比门禁。candidate 相对 baseline。
+# 比值 = candidate / baseline；小于 1 表示更快或更省。
+
+spec:
+  vcpu_tolerance_pct: 2
+  memory_tolerance_pct: 2
+
+performance:
+  # 墙钟类：candidate/baseline 上限
+  opc_wall_ratio_max: 1.05
+  mask_wall_ratio_max: 1.08
+  opc_proxy_ratio_max: 1.10
+  mask_proxy_ratio_max: 1.10
+  stream_single_triad_ratio_min: 0.90  # 单核 STREAM Triad
+  stream_triad_ratio_min: 0.90         # 整机 STREAM Triad
+  cpu_single_events_ratio_min: 0.90    # 单核 sysbench
+  cpu_events_ratio_min: 0.90           # 多核/满核 sysbench
+  storage_seq_read_ratio_min: 0.80
+  storage_p99_ratio_max: 1.20
+  net_bw_ratio_min: 0.80
+
+cost:
+  # 有效成本 = 墙钟小时 * 单价
+  opc_cost_ratio_max: 1.00
+  mask_cost_ratio_max: 1.05
+
+stability:
+  max_uncorrectable_ecc: 0
+  max_kernel_oops: 0
+  max_wall_drift_pct: 8
+
+correctness:
+  mask_require_bit_exact: true
+  opc_require_signed_tolerance: true

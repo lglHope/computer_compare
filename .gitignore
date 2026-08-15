@@ -1,0 +1,4 @@
+results/
+**/*.tgz
+**/*.bin
+.DS_Store

@@ -1,0 +1,54 @@
+# 机型评测主配置。按实际云账号与机型修改。
+project: opc-mask-instance-eval
+region: cn-shanghai
+az: cn-shanghai-b
+
+# 公平对比：镜像、存储、许可证必须两端一致
+# CentOS 7.9 虚机：bootstrap.sh 会创建 scratch；无共享盘时把 shared_fs 留空
+environment:
+  os_image: "centos7.9"          # 量产对照请改回双方一致的 EDA 镜像
+  shared_fs: ""                  # 例如 /eda/projects；空则跳过共享盘 fio
+  scratch: "/scratch"            # Mask/fio 工作目录；file_gb=16 时建议 ≥40GB 空闲
+  license_server: ""             # 例如 27000@license.eda.internal；空则跳过探测
+  scheduler: none                # slurm | lsf | k8s | none
+
+baseline:
+  name: baseline-c7-16xl
+  instance_type: ecs.c7.16xlarge
+  vcpu: 64
+  memory_gb: 128
+  local_disk: nvme-0
+  network_gbps: 32
+  hourly_price_cny: 12.80
+  notes: "现网主力，供应不足"
+
+candidate:
+  name: candidate-c8i-16xl
+  instance_type: ecs.c8i.16xlarge
+  vcpu: 64
+  memory_gb: 128
+  local_disk: nvme-0
+  network_gbps: 32
+  hourly_price_cny: 13.50
+  notes: "候选新机型"
+
+# 微基准：CPU 单核+满核；STREAM 单核+整机（数组约 3*N*8 字节，勿超过内存）
+microbench:
+  cpu_max_prime: 20000
+  stream_array_n: 80000000
+  fio_runtime_sec: 60
+  fio_size: 32G
+  iperf_sec: 30
+  repeats: 3
+
+# 代理负载（无 EDA 许可证时可跑）；load_sample_sec 为代理期间主机负载采样间隔
+proxy:
+  load_sample_sec: 1
+  opc:
+    grid: 1536          # 二维网格边长；满核时内存约数百 MB～数 GB，勿盲目加大
+    iterations: 20
+    processes: 0        # 0 表示使用全部逻辑核
+  mask:
+    file_gb: 16
+    block_mb: 64
+    checksum_rounds: 2

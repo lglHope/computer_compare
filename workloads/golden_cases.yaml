@@ -1,0 +1,61 @@
+# 将真实工具命令填入。run_eda_golden.sh 按顺序执行 enabled=true 的用例。
+# 工作目录建议使用只读金标副本，输出写到 $EVAL_RUN_DIR/eda/
+
+cases:
+  - id: P4-01
+    name: opc-small
+    domain: opc
+    enabled: false
+    timeout_sec: 14400
+    workdir: /eda/golden/opc/small
+    command: |
+      # 示例：替换为实际 OPC 启动方式
+      # source /eda/tools/opc/env.sh
+      # opc -run deck.tcl -threads $NPROC
+      echo "TODO: 填入 OPC 小用例命令" && exit 2
+    verify: |
+      echo "TODO: 与金标 compare" && exit 2
+
+  - id: P4-02
+    name: opc-medium
+    domain: opc
+    enabled: false
+    timeout_sec: 43200
+    workdir: /eda/golden/opc/medium
+    command: |
+      echo "TODO: 填入 OPC 中用例命令" && exit 2
+    verify: |
+      echo "TODO" && exit 2
+
+  - id: P4-03
+    name: opc-p90
+    domain: opc
+    enabled: false
+    timeout_sec: 172800
+    workdir: /eda/golden/opc/p90
+    command: |
+      echo "TODO: 填入 OPC P90 用例命令" && exit 2
+    verify: |
+      echo "TODO" && exit 2
+
+  - id: P4-04
+    name: mask-mdp
+    domain: mask
+    enabled: false
+    timeout_sec: 28800
+    workdir: /eda/golden/mask/mdp
+    command: |
+      echo "TODO: 填入 MDP 命令" && exit 2
+    verify: |
+      echo "TODO: hash 或官方 compare" && exit 2
+
+  - id: P4-05
+    name: mask-fracture
+    domain: mask
+    enabled: false
+    timeout_sec: 28800
+    workdir: /eda/golden/mask/fracture
+    command: |
+      echo "TODO: 填入 fracture 命令" && exit 2
+    verify: |
+      echo "TODO" && exit 2
