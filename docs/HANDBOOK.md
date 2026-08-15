@@ -13,12 +13,12 @@ Mask = 掩模数据准备 / Fracture 等（偏超大文件读写）
 
 1. 用 `root` 或能 `sudo` 的账号登录待测机器。
 2. 把本目录放到例如 `/opt/instance-type-eval`。
-3. 确认磁盘：试跑大约几 GB；正式跑 Mask 默认约 16GB 文件，scratch 建议空闲 **40GB 以上**。
+3. 确认磁盘：试跑大约几 GB；正式跑 Mask 默认约 16GB 文件，工作目录建议空闲 **40GB 以上**。
 
 ```bash
 cd /opt/instance-type-eval    # 改成你实际放置的路径
 ls scripts/start.sh           # 能列出这个文件就对了
-df -h /scratch /tmp           # 看空闲空间
+df -h /tmp                   # 看空闲空间
 ```
 
 **你会看到：** `scripts/start.sh` 被列出；`df` 有一列 `Avail`（可用空间）。
@@ -164,7 +164,7 @@ less results/compare_report.md
 ## 常见问题
 
 **Q：试跑就磁盘满？**  
-`df -h` 看 `/scratch` 和 `/tmp`。可把 `config/eval.yaml` 里 `environment.scratch` 改到空闲盘，或先只用 `start.sh smoke`（Mask 只用 1GB）。
+`df -h` 看工作目录（默认 `/tmp`，若配置了 `shared_fs` 则用它）。可把 `config/eval.yaml` 里 `environment.shared_fs` 改到空闲的 NFS/并行文件系统挂载点，或先只用 `start.sh smoke`（Mask 只用 1GB）。
 
 **Q：网络那步一闪而过？**  
 没设对端 iperf 服务器会跳过，JSON 里 `skipped: true`。单机对比可以不管。

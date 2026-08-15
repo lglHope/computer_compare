@@ -16,7 +16,7 @@ PKGS_COMMON=(
   jq tar gzip which
 )
 
-SCRATCH_DIR="${SCRATCH_DIR:-/scratch}"
+SCRATCH_DIR="${SCRATCH_DIR:-/tmp}"
 
 os_id() {
   if [[ -f /etc/os-release ]]; then
@@ -116,8 +116,8 @@ fi
 mkdir -p "${SCRATCH_DIR}"
 chmod 1777 "${SCRATCH_DIR}" 2>/dev/null || chmod a+rwx "${SCRATCH_DIR}" || true
 echo
-echo "======== [安装 2/3] 准备临时盘 scratch ========"
-echo "scratch: ${SCRATCH_DIR}"
+echo "======== [安装 2/3] 准备临时目录 ========"
+echo "临时目录: ${SCRATCH_DIR}"
 echo
 
 if python3 -m pip install --quiet pyyaml 2>/dev/null; then

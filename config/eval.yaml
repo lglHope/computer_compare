@@ -7,8 +7,8 @@ az: cn-shanghai-b
 # CentOS 7.9 虚机：bootstrap.sh 会创建 scratch；无共享盘时把 shared_fs 留空
 environment:
   os_image: "centos7.9"          # 量产对照请改回双方一致的 EDA 镜像
-  shared_fs: ""                  # 例如 /eda/projects；空则跳过共享盘 fio
-  scratch: "/scratch"            # Mask/fio 工作目录；file_gb=16 时建议 ≥40GB 空闲
+  shared_fs: ""                  # 例如 /eda/projects（NFS/并行文件系统）；有就优先作为业务工作目录
+  scratch: "/scratch"            # 本地临时盘/兜底目录；没配 shared_fs 时才会优先用它
   license_server: ""             # 例如 27000@license.eda.internal；空则跳过探测
   scheduler: none                # slurm | lsf | k8s | none
 

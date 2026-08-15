@@ -39,7 +39,7 @@ try:
     print(f"export MASK_BLOCK_MB={mask.get('block_mb', 64)}")
     print(f"export MASK_ROUNDS={mask.get('checksum_rounds', 2)}")
     print(f"export LOAD_SAMPLE_SEC={px.get('load_sample_sec', 1)}")
-    print(f"export SCRATCH_DIR={env.get('scratch', '/scratch')}")
+    print(f"export SCRATCH_DIR={env.get('scratch', '/tmp')}")
     print(f"export SHARED_FS={env.get('shared_fs', '')}")
     lic = env.get('license_server', '')
     print(f"export LICENSE_PROBE={lic}")
@@ -68,6 +68,13 @@ export CPU_MAX_PRIME STREAM_ARRAY_N FIO_SIZE FIO_RUNTIME_SEC IPERF_SEC REPEATS
 export OPC_GRID OPC_ITERS OPC_PROCS MASK_FILE_GB MASK_BLOCK_MB MASK_ROUNDS
 export SCRATCH_DIR SHARED_FS LICENSE_PROBE LOAD_SAMPLE_SEC
 
+# 若已配置共享存储（NFS/并行文件系统），则优先用它作为业务工作目录；否则退回 scratch 或 /tmp
+if [[ -n "${SHARED_FS}" && -d "${SHARED_FS}" ]]; then
+  export WORK_DIR="${SHARED_FS}"
+else
+  export WORK_DIR="${SCRATCH_DIR:-/tmp}"
+fi
+
 if [[ "${SMOKE:-0}" == "1" ]]; then
   echo ">>> 试跑 SMOKE=1：缩小规模，只验证流程能出数"
   export CPU_MAX_PRIME=5000
@@ -79,7 +86,7 @@ if [[ "${SMOKE:-0}" == "1" ]]; then
   export OPC_ITERS=4
   export MASK_FILE_GB=1
   export MASK_ROUNDS=1
-  export SCRATCH_DIR="${SCRATCH_DIR:-/tmp}"
+  export WORK_DIR="${WORK_DIR:-/tmp}"
 fi
 
 echo "EVAL_RUN_DIR=${EVAL_RUN_DIR}"
@@ -99,7 +106,7 @@ echo "======== [3/7] 内存带宽：单核 STREAM + 整机 STREAM ========"
 bash "${ROOT}/scripts/bench_memory.sh" "${STREAM_ARRAY_N}"
 echo
 
-echo "======== [4/7] 存储：scratch 顺序读/随机读 ========"
+echo "======== [4/7] 存储：本地盘或共享盘 顺序读/随机读 ========"
 bash "${ROOT}/scripts/bench_storage.sh"
 echo
 
@@ -120,7 +127,7 @@ echo "======== [7/7] Mask 代理（大文件读写形态），同时采样整机
 bash "${ROOT}/scripts/run_with_hostload.sh" mask "${EVAL_RUN_DIR}/proxy/mask.json" -- \
   python3 "${ROOT}/scripts/bench_mask_proxy.py" \
     --file-gb "${MASK_FILE_GB}" --block-mb "${MASK_BLOCK_MB}" --rounds "${MASK_ROUNDS}" \
-    --scratch "${SCRATCH_DIR:-/tmp}" \
+    --scratch "${WORK_DIR}" \
     --out "${EVAL_RUN_DIR}/proxy/mask.json"
 
 if [[ "${RUN_EDA_GOLDEN:-0}" == "1" ]]; then

@@ -12,7 +12,7 @@ def main():
     p.add_argument("--file-gb", type=float, default=float(os.environ.get("MASK_FILE_GB", "8")))
     p.add_argument("--block-mb", type=int, default=int(os.environ.get("MASK_BLOCK_MB", "64")))
     p.add_argument("--rounds", type=int, default=int(os.environ.get("MASK_ROUNDS", "2")))
-    p.add_argument("--scratch", default=os.environ.get("SCRATCH_DIR", "/tmp"))
+    p.add_argument("--scratch", default=os.environ.get("WORK_DIR", os.environ.get("SCRATCH_DIR", "/tmp")))
     p.add_argument("--out", required=True)
     args = p.parse_args()
 

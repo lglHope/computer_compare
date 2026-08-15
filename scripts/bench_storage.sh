@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 存储：本地 scratch 顺序/随机；若设置 SHARED_FS 再测共享盘。
+# 存储：若已配置共享存储则优先测它；否则测本地临时盘；若设置 SHARED_FS 再额外测共享盘。
 set -euo pipefail
 
 RUN_DIR="${EVAL_RUN_DIR:?请先由 run_suite.sh 设置 EVAL_RUN_DIR}"
-SCRATCH="${SCRATCH_DIR:-/scratch}"
+WORK_DIR="${WORK_DIR:-${SCRATCH_DIR:-/tmp}}"
 SHARED="${SHARED_FS:-}"
 SIZE="${FIO_SIZE:-32G}"
 RUNTIME="${FIO_RUNTIME_SEC:-60}"
@@ -30,16 +30,18 @@ run_fio() {
   rm -f "${dir}"/fio_* "${dir}"/"${name}"_* 2>/dev/null || true
 }
 
-if [[ -d "${SCRATCH}" ]]; then
-  run_fio local "${SCRATCH}/instance-eval.$$"
-  rm -rf "${SCRATCH}/instance-eval.$$"
+# 优先测 WORK_DIR（若是共享存储则直接测它，否则是本地临时盘）
+if [[ -d "${WORK_DIR}" ]]; then
+  run_fio workdir "${WORK_DIR}/instance-eval.$$"
+  rm -rf "${WORK_DIR}/instance-eval.$$"
 else
-  echo "SCRATCH_DIR=${SCRATCH} 不存在，改用 /tmp"
-  run_fio local "/tmp/instance-eval.$$"
+  echo "WORK_DIR=${WORK_DIR} 不存在，改用 /tmp"
+  run_fio workdir "/tmp/instance-eval.$$"
   rm -rf "/tmp/instance-eval.$$"
 fi
 
-if [[ -n "${SHARED}" && -d "${SHARED}" ]]; then
+# 若 SHARED_FS 与 WORK_DIR 不同（即 WORK_DIR 不是共享存储），则额外测共享盘
+if [[ -n "${SHARED}" && -d "${SHARED}" && "${SHARED}" != "${WORK_DIR}" ]]; then
   run_fio shared "${SHARED}/instance-eval.$$"
   rm -rf "${SHARED}/instance-eval.$$"
 fi
