@@ -7,29 +7,96 @@ RUN_DIR="${EVAL_RUN_DIR:-${ROOT}/results/$(hostname)-$(date +%Y%m%dT%H%M%S)}"
 mkdir -p "${RUN_DIR}/raw"
 OUT="${RUN_DIR}/sysinfo.json"
 
-json_escape() {
-  python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'
+python3 - <<'PY' "${OUT}" "${RUN_DIR}" "${INSTANCE_ID:-unknown}" "${ROLE:-unknown}"
+import json, os, re, socket, subprocess, sys, time
+
+out_path, run_dir, instance_id, role = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+
+
+def run(cmd):
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           universal_newlines=True, timeout=30)
+        return p.stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def read_file(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+meminfo_raw = read_file("/proc/meminfo")
+meminfo_filt = "\n".join(
+    line for line in meminfo_raw.splitlines()
+    if re.search(r"MemTotal|MemFree|MemAvailable|HugePages", line)
+)
+
+nics = []
+try:
+    for name in sorted(os.listdir("/sys/class/net")):
+        if name == "lo":
+            continue
+        nics.append(name)
+except OSError:
+    pass
+
+ethtool_parts = []
+for n in nics:
+    out = run(["ethtool", n])
+    if out:
+        ethtool_parts.append(f"=== {n} ===\n" + "\n".join(out.splitlines()[:20]))
+ethtool_text = "\n".join(ethtool_parts)
+
+dmesg_text = run(["dmesg", "-T"])
+dmesg_hw = "\n".join(
+    line for line in dmesg_text.splitlines()
+    if re.search(r"error|mce|ecc|i/o error|nvme", line, re.IGNORECASE)
+)[-5000:]
+
+try:
+    with open("/etc/os-release", encoding="utf-8") as f:
+        os_release = f.read()
+except OSError:
+    os_release = ""
+
+info = {
+    "hostname": socket.gethostname(),
+    "instance_id": instance_id,
+    "role": role,
+    "collected_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    "uname": run(["uname", "-a"]).strip(),
+    "os_release": os_release.strip(),
+    "lscpu": run(["lscpu"]),
+    "cpuinfo_flags": "",
+    "meminfo": meminfo_filt,
+    "numa": run(["numactl", "-H"]) or "numactl missing",
+    "lsblk": run(["lsblk", "-o", "NAME,SIZE,TYPE,ROTA,MODEL,TRAN"]),
+    "df": run(["df", "-hT"]),
+    "nics": run(["ip", "-o", "-4", "addr", "show"]),
+    "ethtool": ethtool_text,
+    "dmesg_hw_errors": dmesg_hw,
 }
 
-{
-  echo "{"
-  echo "  \"hostname\": $(hostname | json_escape),"
-  echo "  \"instance_id\": $(printf '%s' "${INSTANCE_ID:-unknown}" | json_escape),"
-  echo "  \"role\": $(printf '%s' "${ROLE:-unknown}" | json_escape),"
-  echo "  \"collected_at\": $( (date -Iseconds 2>/dev/null || date --iso-8601=seconds 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ) | json_escape),"
-  echo "  \"uname\": $(uname -a | json_escape),"
-  echo "  \"os_release\": $( (cat /etc/os-release 2>/dev/null || true) | json_escape),"
-  echo "  \"lscpu\": $(lscpu 2>/dev/null | json_escape),"
-  echo "  \"cpuinfo_flags\": $( (grep -m1 '^flags' /proc/cpuinfo || true) | json_escape),"
-  echo "  \"meminfo\": $( (awk '/MemTotal|MemFree|MemAvailable|HugePages/ {print}' /proc/meminfo) | json_escape),"
-  echo "  \"numa\": $( (numactl -H 2>/dev/null || echo 'numactl missing') | json_escape),"
-  echo "  \"lsblk\": $( (lsblk -o NAME,SIZE,TYPE,ROTA,MODEL,TRAN 2>/dev/null || true) | json_escape),"
-  echo "  \"df\": $( (df -hT 2>/dev/null || true) | json_escape),"
-  echo "  \"nics\": $( (ip -o -4 addr show 2>/dev/null || true) | json_escape),"
-  echo "  \"ethtool\": $( (for n in $(ls /sys/class/net | grep -v lo); do echo \"=== $n ===\"; ethtool "$n" 2>/dev/null | head -n 20; done) | json_escape),"
-  echo "  \"dmesg_hw_errors\": $( (dmesg -T 2>/dev/null | grep -Ei 'error|mce|ecc|i/o error|nvme' | tail -n 50 || true) | json_escape)"
-  echo "}"
-} > "${OUT}"
+cpuinfo = read_file("/proc/cpuinfo")
+for line in cpuinfo.splitlines():
+    if line.startswith("flags"):
+        info["cpuinfo_flags"] = line
+        break
 
-cp "${OUT}" "${RUN_DIR}/raw/" 2>/dev/null || true
-echo "已写入 ${OUT}"
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump(info, f, indent=2, ensure_ascii=False)
+
+raw_copy = os.path.join(run_dir, "raw", "sysinfo.json")
+try:
+    import shutil
+    shutil.copy2(out_path, raw_copy)
+except OSError:
+    pass
+
+print(f"已写入 {out_path}")
+PY

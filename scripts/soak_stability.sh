@@ -7,7 +7,12 @@ HOURS="${1:-48}"
 END=$(( $(date +%s) + HOURS * 3600 ))
 LOG_DIR="${ROOT}/results/soak-$(date +%Y%m%dT%H%M%S)"
 mkdir -p "${LOG_DIR}"
-DMESG_BASE="$(dmesg 2>/dev/null | wc -l || echo 0)"
+
+count_dmesg_errors() {
+  dmesg 2>/dev/null | grep -Eic 'mce|hardware error|i/o error|nvme error|uncorrectable|ecc|kernel oops|BUG:|Oops:' || true
+}
+
+DMESG_BASE="$(count_dmesg_errors)"
 i=0
 declare -a walls=()
 
@@ -23,13 +28,15 @@ while [[ "$(date +%s)" -lt "${END}" ]]; do
     python3 "${ROOT}/scripts/bench_mask_proxy.py" --out "${EVAL_RUN_DIR}/proxy/mask.json" --scratch "${SCRATCH_DIR:-/tmp}"
   wall=$(python3 -c "import json; d=json.load(open('${EVAL_RUN_DIR}/proxy/opc.json')); print(d['wall_sec'])")
   walls+=("${wall}")
-  err=$(dmesg 2>/dev/null | grep -Eic 'mce|hardware error|i/o error|nvme error' || true)
-  echo "$(date -Iseconds 2>/dev/null || date --iso-8601=seconds 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ) iter=${i} opc_wall=${wall} dmesg_hits=${err}" | tee -a "${LOG_DIR}/soak.csv"
+  err_now="$(count_dmesg_errors)"
+  new_err=$(( err_now > DMESG_BASE ? err_now - DMESG_BASE : 0 ))
+  echo "$(date -Iseconds 2>/dev/null || date --iso-8601=seconds 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ) iter=${i} opc_wall=${wall} dmesg_errors_total=${err_now} dmesg_new_since_start=${new_err}" | tee -a "${LOG_DIR}/soak.csv"
 done
 
-python3 - <<PY "${LOG_DIR}"
+python3 - <<PY "${LOG_DIR}" "${DMESG_BASE}"
 import json, os, statistics, sys
 log_dir = sys.argv[1]
+dmesg_base = int(sys.argv[2])
 vals = []
 for line in open(os.path.join(log_dir, "soak.csv")):
     for part in line.split():
@@ -40,7 +47,13 @@ if not vals:
 med = statistics.median(vals)
 last = statistics.median(vals[-max(1,len(vals)//5):])
 drift = (last - med) / med * 100 if med else 0
-out = {"samples": len(vals), "median_wall": med, "late_median_wall": last, "drift_pct": drift}
+out = {
+    "samples": len(vals),
+    "median_wall": med,
+    "late_median_wall": last,
+    "drift_pct": drift,
+    "dmesg_errors_baseline": dmesg_base,
+}
 json.dump(out, open(os.path.join(log_dir, "soak_summary.json"), "w"), indent=2)
 print(out)
 if abs(drift) > 8:

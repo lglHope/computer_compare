@@ -120,9 +120,9 @@ echo "======== [安装 2/3] 准备临时目录 ========"
 echo "临时目录: ${SCRATCH_DIR}"
 echo
 
-if python3 -m pip install --quiet pyyaml 2>/dev/null; then
+if python3 -m pip install --quiet pyyaml numpy 2>/dev/null; then
   :
-elif pip3 install --quiet pyyaml 2>/dev/null; then
+elif pip3 install --quiet pyyaml numpy 2>/dev/null; then
   :
 elif command -v yum >/dev/null 2>&1; then
   yum install -y python36-PyYAML python3-pyyaml 2>/dev/null || true

@@ -16,35 +16,53 @@ if ! command -v fio >/dev/null 2>&1; then
   exit 0
 fi
 
+CLEANUP_DIRS=()
+
+cleanup() {
+  local d
+  for d in "${CLEANUP_DIRS[@]:-}"; do
+    [[ -n "${d}" && -d "${d}" ]] && rm -rf -- "${d}" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT
+
 run_fio() {
   local name="$1"
   local dir="$2"
   mkdir -p "${dir}"
+  CLEANUP_DIRS+=("${dir}")
   local prefix="${dir}/fio_${name}"
+  local rc=0
   fio --name="${name}_seqread" --directory="${dir}" --rw=read --bs=1m --size="${SIZE}" \
       --runtime="${RUNTIME}" --time_based=1 --iodepth=32 --numjobs=4 --direct=1 \
-      --group_reporting --output-format=json --output="${OUT_DIR}/${name}_seqread.json"
+      --group_reporting --output-format=json --output="${OUT_DIR}/${name}_seqread.json" || rc=$?
+  if [[ ${rc} -ne 0 ]]; then
+    echo "fio ${name}_seqread 失败 (rc=${rc})" >&2
+  fi
   fio --name="${name}_randread" --directory="${dir}" --rw=randread --bs=4k --size="${SIZE}" \
       --runtime="${RUNTIME}" --time_based=1 --iodepth=32 --numjobs=8 --direct=1 \
-      --group_reporting --output-format=json --output="${OUT_DIR}/${name}_randread.json"
-  rm -f "${dir}"/fio_* "${dir}"/"${name}"_* 2>/dev/null || true
+      --group_reporting --output-format=json --output="${OUT_DIR}/${name}_randread.json" || rc=$?
+  if [[ ${rc} -ne 0 ]]; then
+    echo "fio ${name}_randread 失败 (rc=${rc})" >&2
+  fi
+  return "${rc}"
 }
 
-# 优先测 WORK_DIR（若是共享存储则直接测它，否则是本地临时盘）
+overall_rc=0
+
 if [[ -d "${WORK_DIR}" ]]; then
-  run_fio workdir "${WORK_DIR}/instance-eval.$$"
-  rm -rf "${WORK_DIR}/instance-eval.$$"
+  run_fio workdir "${WORK_DIR}/instance-eval.$$" || overall_rc=$?
 else
   echo "WORK_DIR=${WORK_DIR} 不存在，改用 /tmp"
-  run_fio workdir "/tmp/instance-eval.$$"
-  rm -rf "/tmp/instance-eval.$$"
+  run_fio workdir "/tmp/instance-eval.$$" || overall_rc=$?
 fi
 
-# 若 SHARED_FS 与 WORK_DIR 不同（即 WORK_DIR 不是共享存储），则额外测共享盘
 if [[ -n "${SHARED}" && -d "${SHARED}" && "${SHARED}" != "${WORK_DIR}" ]]; then
-  run_fio shared "${SHARED}/instance-eval.$$"
-  rm -rf "${SHARED}/instance-eval.$$"
+  run_fio shared "${SHARED}/instance-eval.$$" || overall_rc=$?
 fi
+
+cleanup
+trap - EXIT
 
 python3 - <<'PY' "${OUT_DIR}"
 import json, glob, os, sys
@@ -53,7 +71,10 @@ summary = {}
 for path in glob.glob(os.path.join(out_dir, "*.json")):
     if os.path.basename(path) == "storage.json":
         continue
-    data = json.load(open(path))
+    try:
+        data = json.load(open(path))
+    except Exception:
+        continue
     jobs = data.get("jobs") or []
     if not jobs:
         continue
@@ -68,3 +89,5 @@ for path in glob.glob(os.path.join(out_dir, "*.json")):
 json.dump(summary, open(os.path.join(out_dir, "storage.json"), "w"), indent=2)
 print(json.dumps(summary, indent=2))
 PY
+
+exit "${overall_rc}"

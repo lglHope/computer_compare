@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 
@@ -65,6 +66,8 @@ def main():
     gates = load_yaml(args.gates) if os.path.isfile(args.gates) else {}
     perf = gates.get("performance") or {}
     costg = gates.get("cost") or {}
+    specg = gates.get("spec") or {}
+    stbg = gates.get("stability") or {}
 
     b_price = get(cfg, "baseline", "hourly_price_cny")
     c_price = get(cfg, "candidate", "hourly_price_cny")
@@ -73,6 +76,39 @@ def main():
 
     def add(name, b, c, r, status, note=""):
         rows.append((name, b, c, r, status, note))
+
+    def load_sysinfo(summary):
+        run_dir = summary.get("run_dir")
+        if not run_dir:
+            return {}
+        p = os.path.join(run_dir, "sysinfo.json")
+        if not os.path.isfile(p):
+            return {}
+        try:
+            return load_json(p)
+        except Exception:
+            return {}
+
+    def parse_sysinfo_spec(si):
+        info = {"vcpu": None, "memory_gb": None}
+        lscpu = si.get("lscpu") or ""
+        m = re.search(r"^CPU\(s\):\s*(\d+)", lscpu, re.MULTILINE)
+        if m:
+            info["vcpu"] = int(m.group(1))
+        meminfo = si.get("meminfo") or ""
+        m = re.search(r"MemTotal:\s*(\d+)\s*kB", meminfo)
+        if m:
+            info["memory_gb"] = round(int(m.group(1)) / 1024 / 1024, 1)
+        return info
+
+    def count_dmesg_errors(si):
+        text = si.get("dmesg_hw_errors") or ""
+        if not text:
+            return {"ecc": 0, "oops": 0}
+        return {
+            "ecc": len(re.findall(r"(?i)uncorrectable|ecc.*error|memory.*error", text)),
+            "oops": len(re.findall(r"(?i)kernel oops|BUG:|Oops:|general protection|stackprotector", text)),
+        }
 
     b_cpu1 = get(base, "cpu", "single_core_eps_median") or get(base, "cpu", "single_thread_eps_median")
     c_cpu1 = get(cand, "cpu", "single_core_eps_median") or get(cand, "cpu", "single_thread_eps_median")
@@ -109,6 +145,50 @@ def main():
     r_mask = ratio(c_mask, b_mask)
     add("Mask 代理墙钟 s", b_mask, c_mask, r_mask,
         gate_max(r_mask, perf.get("mask_proxy_ratio_max")), "越低越好")
+
+    def storage_val(summary, fio_key, field):
+        st = get(summary, "storage") or {}
+        block = st.get(fio_key) or {}
+        return block.get(field)
+
+    b_sr = storage_val(base, "workdir_seqread", "bw_bytes")
+    c_sr = storage_val(cand, "workdir_seqread", "bw_bytes")
+    r_sr = ratio(c_sr, b_sr)
+    add("存储 顺序读带宽 B/s", b_sr, c_sr, r_sr,
+        gate_max(r_sr, perf.get("storage_seq_read_ratio_min"), invert=True), "fio 1M 顺序读，越高越好")
+
+    b_s99 = storage_val(base, "workdir_randread", "lat_ns_p99")
+    c_s99 = storage_val(cand, "workdir_randread", "lat_ns_p99")
+    r_s99 = ratio(c_s99, b_s99)
+    add("存储 随机读 P99 延迟 ns", b_s99, c_s99, r_s99,
+        gate_max(r_s99, perf.get("storage_p99_ratio_max")), "fio 4K 随机读 P99，越低越好")
+
+    b_net = get(base, "network", "bits_per_second")
+    c_net = get(cand, "network", "bits_per_second")
+    r_net = ratio(c_net, b_net)
+    add("网络带宽 bps", b_net, c_net, r_net,
+        gate_max(r_net, perf.get("net_bw_ratio_min"), invert=True), "iperf3，越高越好")
+
+    b_si = load_sysinfo(base)
+    c_si = load_sysinfo(cand)
+    b_spec = parse_sysinfo_spec(b_si)
+    c_spec = parse_sysinfo_spec(c_si)
+    vcpu_tol = specg.get("vcpu_tolerance_pct")
+    mem_tol = specg.get("memory_tolerance_pct")
+
+    if b_spec["vcpu"] and c_spec["vcpu"] and vcpu_tol is not None:
+        diff_pct = abs(c_spec["vcpu"] - b_spec["vcpu"]) / b_spec["vcpu"] * 100
+        ok = diff_pct <= vcpu_tol
+        add("规格 vCPU 数", b_spec["vcpu"], c_spec["vcpu"], None,
+            "PASS" if ok else "FAIL",
+            f"差异 {diff_pct:.1f}%，容差 ±{vcpu_tol}%")
+
+    if b_spec["memory_gb"] and c_spec["memory_gb"] and mem_tol is not None:
+        diff_pct = abs(c_spec["memory_gb"] - b_spec["memory_gb"]) / b_spec["memory_gb"] * 100
+        ok = diff_pct <= mem_tol
+        add("规格 内存 GB", b_spec["memory_gb"], c_spec["memory_gb"], None,
+            "PASS" if ok else "FAIL",
+            f"差异 {diff_pct:.1f}%，容差 ±{mem_tol}%")
 
     def hostload_avg(summary, proxy_key, metric):
         h = get(summary, proxy_key, "hostload") or {}
@@ -171,6 +251,28 @@ def main():
     r_cost_mask = cost_ratio(r_eda_mask or r_mask, b_price, c_price)
     add("Mask 有效成本比", b_price, c_price, r_cost_mask,
         gate_max(r_cost_mask, costg.get("mask_cost_ratio_max")))
+
+    max_ecc = stbg.get("max_uncorrectable_ecc")
+    max_oops = stbg.get("max_kernel_oops")
+    max_drift = stbg.get("max_wall_drift_pct")
+
+    if b_si and c_si:
+        c_err = count_dmesg_errors(c_si)
+        if max_ecc is not None:
+            add("稳定性 candidate ECC 不可纠正错误数", None, c_err["ecc"], None,
+                "PASS" if c_err["ecc"] <= max_ecc else "FAIL",
+                f"门禁 ≤{max_ecc}")
+        if max_oops is not None:
+            add("稳定性 candidate kernel oops 数", None, c_err["oops"], None,
+                "PASS" if c_err["oops"] <= max_oops else "FAIL",
+                f"门禁 ≤{max_oops}")
+
+    b_drift = get(base, "soak", "drift_pct")
+    c_drift = get(cand, "soak", "drift_pct")
+    if c_drift is not None and max_drift is not None:
+        add("稳定性 长时间墙钟漂移 %", b_drift, c_drift, None,
+            "PASS" if abs(c_drift) <= max_drift else "FAIL",
+            f"门禁 ±{max_drift}%")
 
     fails = [r for r in rows if r[4] == "FAIL"]
     decision = "NO-GO" if fails else ("GO（待金标补齐）" if any(r[4] == "SKIP" for r in rows) else "GO")

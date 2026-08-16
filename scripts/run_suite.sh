@@ -89,6 +89,37 @@ if [[ "${SMOKE:-0}" == "1" ]]; then
   export WORK_DIR="${WORK_DIR:-/tmp}"
 fi
 
+check_disk_space() {
+  local dir="$1"
+  local need_gb="$2"
+  local label="$3"
+  [[ -d "${dir}" ]] || { echo ">>> 警告: ${label} 目录 ${dir} 不存在，跳过空间检查" >&2; return 0; }
+  local avail_kb
+  avail_kb=$(df -Pk "${dir}" 2>/dev/null | awk 'NR==2 {print $4}')
+  if [[ -z "${avail_kb}" ]]; then
+    echo ">>> 警告: 无法获取 ${dir} 的可用空间，跳过检查" >&2
+    return 0
+  fi
+  local avail_gb=$(( avail_kb / 1024 / 1024 ))
+  if [[ "${avail_gb}" -lt "${need_gb}" ]]; then
+    echo ">>> 错误: ${label} (${dir}) 可用空间约 ${avail_gb}GB，至少需要 ${need_gb}GB" >&2
+    echo ">>> 请在 config/eval.yaml 中改 shared_fs/scratch，或清理磁盘后重试" >&2
+    exit 1
+  fi
+  echo ">>> ${label} (${dir}) 可用空间约 ${avail_gb}GB，需要约 ${need_gb}GB，OK"
+}
+
+fio_gb=1
+case "${FIO_SIZE}" in
+  *G) fio_gb="${FIO_SIZE%G}" ;;
+  *M) fio_gb=1 ;;
+  *) fio_gb=1 ;;
+esac
+need_work_gb=$(( fio_gb + MASK_FILE_GB * (MASK_ROUNDS + 1) + 5 ))
+need_run_gb=2
+check_disk_space "${WORK_DIR}" "${need_work_gb}" "工作目录"
+check_disk_space "${EVAL_RUN_DIR}" "${need_run_gb}" "结果目录"
+
 echo "EVAL_RUN_DIR=${EVAL_RUN_DIR}"
 echo "ROLE=${ROLE} INSTANCE_ID=${INSTANCE_ID}"
 echo "结果将全部写入该目录。下面 7 步按顺序执行。"
