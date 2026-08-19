@@ -115,8 +115,18 @@ case "${FIO_SIZE}" in
   *M) fio_gb=1 ;;
   *) fio_gb=1 ;;
 esac
-need_work_gb=$(( fio_gb + MASK_FILE_GB * (MASK_ROUNDS + 1) + 5 ))
+# fio: randread 8并发job，每个job一个size文件（seqread后会清理）
+# mask代理: 写+读同一文件，峰值为 MASK_FILE_GB
+# 两者顺序执行，取最大值 + 余量10GB
+fio_peak_gb=$(( fio_gb * 8 ))
+mask_peak_gb=$(( MASK_FILE_GB * 2 ))
+if [[ ${fio_peak_gb} -gt ${mask_peak_gb} ]]; then
+  need_work_gb=$(( fio_peak_gb + 10 ))
+else
+  need_work_gb=$(( mask_peak_gb + 10 ))
+fi
 need_run_gb=2
+echo ">>> 空间需求估算: fio峰值 ${fio_peak_gb}GB, Mask峰值 ${mask_peak_gb}GB"
 check_disk_space "${WORK_DIR}" "${need_work_gb}" "工作目录"
 check_disk_space "${EVAL_RUN_DIR}" "${need_run_gb}" "结果目录"
 

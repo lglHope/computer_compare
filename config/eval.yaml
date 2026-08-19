@@ -4,40 +4,40 @@ region: cn-shanghai
 az: cn-shanghai-b
 
 # 公平对比：镜像、存储、许可证必须两端一致
-# CentOS 7.9 虚机：bootstrap.sh 会创建 scratch；无共享盘时把 shared_fs 留空
+# CentOS 7.9 虚机：bootstrap.sh 会创建 scratch；配置了 shared_fs 则优先使用它
 environment:
-  os_image: "centos7.9"          # 量产对照请改回双方一致的 EDA 镜像
-  shared_fs: ""                  # 例如 /eda/projects（NFS/并行文件系统）；有就优先作为业务工作目录
-  scratch: "/scratch"            # 本地临时盘/兜底目录；没配 shared_fs 时才会优先用它
+  os_image: "centos7.9"
+  shared_fs: "/data/ws01"       # NFS共享存储挂载点
+  scratch: "/scratch"            # 本地临时盘/兜底目录
   license_server: ""             # 例如 27000@license.eda.internal；空则跳过探测
   scheduler: none                # slurm | lsf | k8s | none
 
 baseline:
-  name: baseline-c7-16xl
-  instance_type: ecs.c7.16xlarge
-  vcpu: 64
-  memory_gb: 128
-  local_disk: nvme-0
-  network_gbps: 32
-  hourly_price_cny: 12.80
-  notes: "现网主力，供应不足"
+  name: baseline-test
+  instance_type: ecs.test
+  vcpu: 4
+  memory_gb: 15
+  local_disk: none
+  network_gbps: 0
+  hourly_price_cny: 1.0
+  notes: "测试机-baseline"
 
 candidate:
-  name: candidate-c8i-16xl
-  instance_type: ecs.c8i.16xlarge
-  vcpu: 64
-  memory_gb: 128
-  local_disk: nvme-0
-  network_gbps: 32
-  hourly_price_cny: 13.50
-  notes: "候选新机型"
+  name: candidate-test
+  instance_type: ecs.test
+  vcpu: 4
+  memory_gb: 15
+  local_disk: none
+  network_gbps: 0
+  hourly_price_cny: 1.0
+  notes: "测试机-candidate"
 
 # 微基准：CPU 单核+满核；STREAM 单核+整机（数组约 3*N*8 字节，勿超过内存）
 microbench:
   cpu_max_prime: 20000
   stream_array_n: 80000000
   fio_runtime_sec: 60
-  fio_size: 32G
+  fio_size: 8G                   # 适配NFS空间，单job 8G；正式测试可调大到32G
   iperf_sec: 30
   repeats: 3
 
