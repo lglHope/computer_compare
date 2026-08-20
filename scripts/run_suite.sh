@@ -109,30 +109,58 @@ check_disk_space() {
   echo ">>> ${label} (${dir}) 可用空间约 ${avail_gb}GB，需要约 ${need_gb}GB，OK"
 }
 
+# === 测试开关 ===
+# SKIP_STORAGE=1 跳过存储fio测试（默认跳过，设置0恢复）
+# SKIP_PROXY=0   运行OPC/Mask代理（默认运行，设置1跳过代理只跑真实金标）
+# 说明：如果workloads/golden_cases.yaml中有enabled=true的用例，会自动运行真实金标
+SKIP_STORAGE="${SKIP_STORAGE:-1}"
+SKIP_PROXY="${SKIP_PROXY:-0}"
+
+# 自动检测是否有启用的金标用例
+HAS_GOLDEN=0
+if python3 -c "
+import yaml
+doc = yaml.safe_load(open('${ROOT}/workloads/golden_cases.yaml', encoding='utf-8'))
+for c in doc.get('cases') or []:
+    if c.get('enabled'):
+        exit(0)
+exit(1)
+" 2>/dev/null; then
+  HAS_GOLDEN=1
+fi
+
 fio_gb=1
 case "${FIO_SIZE}" in
   *G) fio_gb="${FIO_SIZE%G}" ;;
   *M) fio_gb=1 ;;
   *) fio_gb=1 ;;
 esac
-# fio: randread 8并发job，每个job一个size文件（seqread后会清理）
-# mask代理: 写+读同一文件，峰值为 MASK_FILE_GB
-# 两者顺序执行，取最大值 + 余量10GB
-fio_peak_gb=$(( fio_gb * 8 ))
-mask_peak_gb=$(( MASK_FILE_GB * 2 ))
-if [[ ${fio_peak_gb} -gt ${mask_peak_gb} ]]; then
-  need_work_gb=$(( fio_peak_gb + 10 ))
-else
-  need_work_gb=$(( mask_peak_gb + 10 ))
-fi
+
+# 空间需求计算
+need_work_gb=5
 need_run_gb=2
-echo ">>> 空间需求估算: fio峰值 ${fio_peak_gb}GB, Mask峰值 ${mask_peak_gb}GB"
+space_parts=""
+if [[ "${SKIP_STORAGE}" == "0" ]]; then
+  fio_peak_gb=$(( fio_gb * 8 ))
+  need_work_gb=$(( need_work_gb + fio_peak_gb ))
+  space_parts="${space_parts}fio峰值 ${fio_peak_gb}GB, "
+fi
+if [[ "${SKIP_PROXY}" == "0" ]]; then
+  mask_peak_gb=$(( MASK_FILE_GB * 2 ))
+  if [[ ${mask_peak_gb} -gt ${need_work_gb} || ${need_work_gb} -eq 5 ]]; then
+    need_work_gb=$(( mask_peak_gb + 5 ))
+  fi
+  space_parts="${space_parts}Mask峰值 ${mask_peak_gb}GB, "
+fi
+echo ">>> 空间需求估算: ${space_parts}工作目录需要 ${need_work_gb}GB"
+if [[ "${HAS_GOLDEN}" == "1" ]]; then
+  echo ">>> 检测到已启用的真实EDA金标用例，将在微基准后自动运行"
+fi
 check_disk_space "${WORK_DIR}" "${need_work_gb}" "工作目录"
 check_disk_space "${EVAL_RUN_DIR}" "${need_run_gb}" "结果目录"
 
 echo "EVAL_RUN_DIR=${EVAL_RUN_DIR}"
 echo "ROLE=${ROLE} INSTANCE_ID=${INSTANCE_ID}"
-echo "结果将全部写入该目录。下面 7 步按顺序执行。"
 echo
 
 echo "======== [1/7] 采集机器规格（CPU/内存/磁盘/网卡） ========"
@@ -147,16 +175,21 @@ echo "======== [3/7] 内存带宽：单核 STREAM + 整机 STREAM ========"
 bash "${ROOT}/scripts/bench_memory.sh" "${STREAM_ARRAY_N}"
 echo
 
+if [[ "${SKIP_STORAGE}" == "0" ]]; then
 echo "======== [4/7] 存储：本地盘或共享盘 顺序读/随机读 ========"
 bash "${ROOT}/scripts/bench_storage.sh"
 echo
+else
+mkdir -p "${EVAL_RUN_DIR}/storage"
+echo '{"skipped": true, "reason": "存储测试已跳过，设置 SKIP_STORAGE=0 可恢复"}' > "${EVAL_RUN_DIR}/storage/storage.json"
+fi
 
 echo "======== [5/7] 网络：未设置 IPERF_SERVER 时只做连通性并跳过 iperf3 ========"
 bash "${ROOT}/scripts/bench_network.sh"
 echo
 
 mkdir -p "${EVAL_RUN_DIR}/proxy"
-
+if [[ "${SKIP_PROXY}" == "0" ]]; then
 echo "======== [6/7] OPC 代理（计算+内存带宽形态），同时采样整机负载 ========"
 bash "${ROOT}/scripts/run_with_hostload.sh" opc "${EVAL_RUN_DIR}/proxy/opc.json" -- \
   python3 "${ROOT}/scripts/bench_opc_proxy.py" \
@@ -170,9 +203,18 @@ bash "${ROOT}/scripts/run_with_hostload.sh" mask "${EVAL_RUN_DIR}/proxy/mask.jso
     --file-gb "${MASK_FILE_GB}" --block-mb "${MASK_BLOCK_MB}" --rounds "${MASK_ROUNDS}" \
     --scratch "${WORK_DIR}" \
     --out "${EVAL_RUN_DIR}/proxy/mask.json"
+echo
+else
+echo '{"skipped": true, "reason": "代理测试已跳过（使用真实EDA金标），设置 SKIP_PROXY=0 可恢复"}' > "${EVAL_RUN_DIR}/proxy/opc.json"
+echo '{"skipped": true, "reason": "代理测试已跳过（使用真实EDA金标），设置 SKIP_PROXY=0 可恢复"}' > "${EVAL_RUN_DIR}/proxy/mask.json"
+echo "======== [6/7][7/7] OPC/Mask代理已跳过，将使用真实金标 ========"
+echo
+fi
 
-if [[ "${RUN_EDA_GOLDEN:-0}" == "1" ]]; then
+if [[ "${HAS_GOLDEN}" == "1" || "${RUN_EDA_GOLDEN:-0}" == "1" ]]; then
+  echo "======== 运行真实 EDA 金标用例 ========"
   bash "${ROOT}/scripts/run_eda_golden.sh" || true
+  echo
 fi
 
 python3 - <<PY

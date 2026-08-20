@@ -55,23 +55,26 @@ def main():
     print("  整机 Triad    : %s" % num(g(d, "memory", "machine_triad_gbps") or g(d, "memory", "triad_gbps"), " GB/s"))
     print("[存储 fio]")
     storage = d.get("storage") or {}
-    sr = storage.get("workdir_seqread") or {}
-    rr = storage.get("workdir_randread") or {}
-    sh = storage.get("shared_seqread") or {}
-    rh = storage.get("shared_randread") or {}
-    if not storage:
-        print("  （无数据）")
+    if storage.get("skipped"):
+        print("  跳过：%s" % storage.get("reason", "未执行存储测试"))
     else:
-        if sr:
-            print("  工作目录顺序读 : %s  (IOPS: %s)" % (bw_mbps(sr.get("bw_bytes")), num(sr.get("iops"))))
-        if rr:
-            print("  工作目录随机读 : %s  (IOPS: %s, P99延迟: %s ns)" % (
-                bw_mbps(rr.get("bw_bytes")), num(rr.get("iops")), num(rr.get("lat_ns_p99"))))
-        if sh:
-            print("  共享目录顺序读 : %s  (IOPS: %s)" % (bw_mbps(sh.get("bw_bytes")), num(sh.get("iops"))))
-        if rh:
-            print("  共享目录随机读 : %s  (IOPS: %s, P99延迟: %s ns)" % (
-                bw_mbps(rh.get("bw_bytes")), num(rh.get("iops")), num(rh.get("lat_ns_p99"))))
+        sr = storage.get("workdir_seqread") or {}
+        rr = storage.get("workdir_randread") or {}
+        sh = storage.get("shared_seqread") or {}
+        rh = storage.get("shared_randread") or {}
+        if not storage:
+            print("  （无数据）")
+        else:
+            if sr:
+                print("  工作目录顺序读 : %s  (IOPS: %s)" % (bw_mbps(sr.get("bw_bytes")), num(sr.get("iops"))))
+            if rr:
+                print("  工作目录随机读 : %s  (IOPS: %s, P99延迟: %s ns)" % (
+                    bw_mbps(rr.get("bw_bytes")), num(rr.get("iops")), num(rr.get("lat_ns_p99"))))
+            if sh:
+                print("  共享目录顺序读 : %s  (IOPS: %s)" % (bw_mbps(sh.get("bw_bytes")), num(sh.get("iops"))))
+            if rh:
+                print("  共享目录随机读 : %s  (IOPS: %s, P99延迟: %s ns)" % (
+                    bw_mbps(rh.get("bw_bytes")), num(rh.get("iops")), num(rh.get("lat_ns_p99"))))
     print("[网络 iperf3]")
     net = d.get("network") or {}
     if net.get("skipped"):
@@ -79,19 +82,27 @@ def main():
     else:
         print("  带宽          : %s" % bw_gbps(net.get("bits_per_second")))
         print("  重传数        : %s" % num(net.get("retransmits")))
+    opc = d.get("opc_proxy") or {}
     print("[OPC 代理]  （近似光学邻近校正：算得多、吃内存带宽）")
-    print("  墙钟          : %s" % num(g(d, "opc_proxy", "wall_sec"), " 秒"))
-    print("  期间 CPU 平均 : %s" % num(g(d, "opc_proxy", "hostload", "cpu_pct", "avg"), " %"))
-    print("  期间 内存平均 : %s" % num(g(d, "opc_proxy", "hostload", "mem_used_gb", "avg"), " GB"))
-    if g(d, "opc_proxy", "hostload", "disk_read_MBps", "avg") is not None:
-        print("  期间 磁盘读   : %s" % num(g(d, "opc_proxy", "hostload", "disk_read_MBps", "avg"), " MB/s"))
-        print("  期间 磁盘写   : %s" % num(g(d, "opc_proxy", "hostload", "disk_write_MBps", "avg"), " MB/s"))
+    if opc.get("skipped"):
+        print("  跳过：%s" % opc.get("reason", "代理测试已跳过"))
+    else:
+        print("  墙钟          : %s" % num(g(d, "opc_proxy", "wall_sec"), " 秒"))
+        print("  期间 CPU 平均 : %s" % num(g(d, "opc_proxy", "hostload", "cpu_pct", "avg"), " %"))
+        print("  期间 内存平均 : %s" % num(g(d, "opc_proxy", "hostload", "mem_used_gb", "avg"), " GB"))
+        if g(d, "opc_proxy", "hostload", "disk_read_MBps", "avg") is not None:
+            print("  期间 磁盘读   : %s" % num(g(d, "opc_proxy", "hostload", "disk_read_MBps", "avg"), " MB/s"))
+            print("  期间 磁盘写   : %s" % num(g(d, "opc_proxy", "hostload", "disk_write_MBps", "avg"), " MB/s"))
+    mask = d.get("mask_proxy") or {}
     print("[Mask 代理]  （近似掩模数据准备：大文件读写）")
-    print("  墙钟          : %s" % num(g(d, "mask_proxy", "wall_sec"), " 秒"))
-    print("  期间 CPU 平均 : %s" % num(g(d, "mask_proxy", "hostload", "cpu_pct", "avg"), " %"))
-    print("  期间 内存平均 : %s" % num(g(d, "mask_proxy", "hostload", "mem_used_gb", "avg"), " GB"))
-    print("  期间 磁盘读   : %s" % num(g(d, "mask_proxy", "hostload", "disk_read_MBps", "avg"), " MB/s"))
-    print("  期间 磁盘写   : %s" % num(g(d, "mask_proxy", "hostload", "disk_write_MBps", "avg"), " MB/s"))
+    if mask.get("skipped"):
+        print("  跳过：%s" % mask.get("reason", "代理测试已跳过"))
+    else:
+        print("  墙钟          : %s" % num(g(d, "mask_proxy", "wall_sec"), " 秒"))
+        print("  期间 CPU 平均 : %s" % num(g(d, "mask_proxy", "hostload", "cpu_pct", "avg"), " %"))
+        print("  期间 内存平均 : %s" % num(g(d, "mask_proxy", "hostload", "mem_used_gb", "avg"), " GB"))
+        print("  期间 磁盘读   : %s" % num(g(d, "mask_proxy", "hostload", "disk_read_MBps", "avg"), " MB/s"))
+        print("  期间 磁盘写   : %s" % num(g(d, "mask_proxy", "hostload", "disk_write_MBps", "avg"), " MB/s"))
     eda = d.get("eda")
     if eda:
         print("[EDA 金标]")
