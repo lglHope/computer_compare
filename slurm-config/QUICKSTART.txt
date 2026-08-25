@@ -1,0 +1,24 @@
+Slurm 快速启动指南
+==================
+
+启动命令（已配置开机自启）：
+  munged 已通过rc.local启动
+  slurmctld -c      # 管理节点
+  slurmd            # 计算节点
+
+验证：
+  sinfo             # 查看节点
+  srun hostname     # 测试作业
+  squeue            # 查看队列
+
+如果节点down：
+  scontrol update nodename=<主机名> state=resume
+
+配置文件位置：
+  /etc/slurm/slurm.conf
+  /etc/slurm/cgroup.conf
+  NFS共享：/data/ws01/slurm-config/
+
+注意：
+  所有节点必须共用同一个 /etc/munge/munge.key
+  新节点复制key和配置文件，启动slurmd即可加入集群

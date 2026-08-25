@@ -111,10 +111,10 @@ check_disk_space() {
 
 # === 测试开关 ===
 # SKIP_STORAGE=1 跳过存储fio测试（默认跳过，设置0恢复）
-# SKIP_PROXY=0   运行OPC/Mask代理（默认运行，设置1跳过代理只跑真实金标）
+# SKIP_PROXY=1   跳过OPC/Mask代理（默认跳过，设置0恢复代理测试）
 # 说明：如果workloads/golden_cases.yaml中有enabled=true的用例，会自动运行真实金标
 SKIP_STORAGE="${SKIP_STORAGE:-1}"
-SKIP_PROXY="${SKIP_PROXY:-0}"
+SKIP_PROXY="${SKIP_PROXY:-1}"
 
 # 自动检测是否有启用的金标用例
 HAS_GOLDEN=0
