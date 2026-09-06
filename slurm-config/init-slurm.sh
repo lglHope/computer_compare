@@ -33,7 +33,7 @@ SLURM_RPM_SRC="${SLURM_RPM_SRC:-/data/ws01/slurm-rpms}"
 DB_PASS="${DB_PASS:-slurmpass_2026}"
 NODE_REG_WAIT="${NODE_REG_WAIT:-120}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-90}"
-ROLE_FILE="/etc/slurm/.init-role"        # 记录本机角色，供 restart/status/check 使用
+ROLE_FILE="/var/lib/slurm-init/role"     # 本机角色记录（本地状态，不可放共享的 /etc/slurm/ 下）
 SETUP_DB="${SETUP_DB:-0}"
 
 # 颜色输出
@@ -85,12 +85,15 @@ conf_value() {  # conf_value <Key>，读取 /etc/slurm/slurm.conf 中某键的�
         | sed 's/(.*//' | awk '{print $1}'
 }
 
-detect_role() {  # 从角色文件/进程/配置推断本机角色
+detect_role() {  # 从角色文件/进程推断本机角色（不依赖 /etc/slurm 下文件：该目录可能为共享挂载）
+    local r=""
     if [ -f "$ROLE_FILE" ]; then
-        cat "$ROLE_FILE"
-        return 0
+        r=$(head -1 "$ROLE_FILE" 2>/dev/null | tr -d '[:space:]')
     fi
-    if proc_running slurmctld || [ -f /etc/slurm/slurmdbd.conf ]; then
+    case "$r" in
+        master|login) echo "$r"; return 0 ;;
+    esac
+    if proc_running slurmctld || proc_running slurmdbd; then
         echo "master"
     else
         echo "login"
@@ -1019,8 +1022,10 @@ case "$CMD" in
         start_slurmctld
         start_slurmd
         setup_autostart
+        mkdir -p "$(dirname "$ROLE_FILE")"
         echo "$ROLE" > "$ROLE_FILE"
         chmod 644 "$ROLE_FILE"
+        rm -f /etc/slurm/.init-role 2>/dev/null || true  # 清理旧版本写入共享目录的角色文件
         verify
 
         echo ""

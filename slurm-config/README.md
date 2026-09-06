@@ -10,11 +10,52 @@
 | `cgroup.conf` | cgroup资源限制配置 | `/etc/slurm/cgroup.conf`（所有节点） |
 | `slurmdbd.conf` | 数据库记账服务配置（可选） | `/etc/slurm/slurmdbd.conf`（仅slurmdbd节点，权限600） |
 | `gres.conf` | GPU/Generic资源配置（如有GPU） | `/etc/slurm/gres.conf`（GPU节点） |
-| `setup-slurm.sh` | 一键部署脚本 | 任意位置 |
+| `init-slurm.sh` | 全功能一键部署/自检脚本（推荐，v3） | 任意位置 |
+| `setup-slurm.sh` | 轻量配置同步脚本（包已装好时用） | 任意位置 |
 
 ## 快速部署步骤
 
-### 1. 准备工作
+### 0. 使用 init-slurm.sh 一键部署（推荐）
+
+`init-slurm.sh` 支持 5 种模式：`master` / `login` / `restart` / `status` / `check`，适合从零部署新节点。它会自动完成：
+
+- 安装 Slurm RPM（优先本地 RPM 目录，否则走网络 yum 源）
+- 创建 munge/slurm 用户与目录权限
+- 生成/共享 `munge.key`、同步 `slurm.conf` 等配置（支持 NFS 共享配置目录）
+- master 上安装并初始化 MariaDB + slurmdbd 记账
+- 启动服务、写入 `/etc/rc.d/rc.local` 开机自启
+- 部署后自检：munge 认证、集群身份一致性、配置语法、端口、时钟、防火墙、节点注册等待、测试作业、日志扫描等（PASS/WARN/FAIL 汇总）
+
+**部署顺序：先 master，后逐台 login/计算节点。**
+
+```bash
+# 1) master 节点（自动装包、建库、生成并共享 munge.key）
+bash init-slurm.sh master
+
+# 2) 每台 login/计算节点（自动拉取 munge.key 并注册进集群）
+MASTER_IP=<master节点IP> bash init-slurm.sh login
+
+# 3) 日常运维
+bash init-slurm.sh status    # 查看角色、进程、节点、记账状态
+bash init-slurm.sh restart   # 按本机角色重启全部服务
+bash init-slurm.sh check     # 只读自检，不修改任何配置
+```
+
+可选环境变量：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `MASTER_IP` | 空 | 管理节点 IP，login 节点建议填写 |
+| `CONFIG_SRC` | `/data/ws01/slurm-config` | 共享配置目录 |
+| `SLURM_RPM_SRC` | `/data/ws01/slurm-rpms` | RPM 包目录（不存在则走网络源） |
+| `SETUP_DB` | master=1，login=0 | 是否初始化 MariaDB/slurmdbd |
+| `DB_PASS` | `slurmpass_2026` | slurmdbd 数据库密码 |
+| `NODE_REG_WAIT` | `120` | 等待节点注册超时（秒） |
+| `TEST_TIMEOUT` | `90` | 测试作业超时（秒） |
+
+> `setup-slurm.sh` 是轻量备选：不装包、不建用户、不碰数据库，只把 `CONFIG_DIR`（默认 `/data/ws01/slurm-config`）下的配置复制到本地并通过 systemd 拉起服务。适合包已装好、只改配置重发的场景。两种脚本不要在同一节点混用。
+
+### 1. 准备工作（手动方式，不使用脚本时）
 
 在所有节点上通过yum安装Slurm包（本地yum源已配置）：
 ```bash
@@ -76,12 +117,13 @@ sleep 2
 systemctl restart slurmd
 ```
 
-或使用提供的一键脚本：
+或使用脚本（见上文"第 0 节"，推荐 `init-slurm.sh`，它会自动完成本节及前后所有手动步骤）。`setup-slurm.sh` 仅适合包已装好的机器快速重发配置：
+
 ```bash
 # 管理节点
 bash /data/ws01/slurm-config/setup-slurm.sh master
 
-# 计算节点（先同步munge.key！）
+# 计算节点（munge.key 需已存在于配置目录！）
 bash /data/ws01/slurm-config/setup-slurm.sh worker
 ```
 
